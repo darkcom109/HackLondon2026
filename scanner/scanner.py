@@ -2,6 +2,7 @@ import os
 import base64
 from dotenv import load_dotenv
 from anthropic import Anthropic
+from speaker import text_to_speech
 
 # Load .env
 load_dotenv()
@@ -68,4 +69,8 @@ def is_person_focused(image_path: str) -> str:
     )
 
     # Claude returns a list of content blocks; we join all text blocks.
-    return "".join(block.text for block in message.content if getattr(block, "type", None) == "text")
+    claude_output = "".join(block.text for block in message.content if getattr(block, "type", None) == "text")
+    
+    text_to_speech(claude_output)
+
+    return claude_output

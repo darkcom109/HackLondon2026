@@ -7,7 +7,7 @@ from datetime import datetime
 
 from scanner import is_person_focused
 
-if __name__ == "__main__":
+def scanner():
     output_folder = os.path.join("SCANNING", "captures")
     os.makedirs(output_folder, exist_ok=True)
 
