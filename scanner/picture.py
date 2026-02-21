@@ -4,6 +4,7 @@ import time
 import os
 import shutil
 import json
+import requests
 from pathlib import Path
 from datetime import datetime
 
@@ -12,6 +13,8 @@ from scanner import is_person_focused
 FOCUS_HIGH_THRESHOLD = 70
 FOCUS_LOW_THRESHOLD = 40
 FOCUS_STATE_FILE = Path(__file__).resolve().parents[1] / "focus_state.json"
+ESP32_URL = os.getenv("ESP32_URL", "").strip()
+ESP32_TIMEOUT_SECONDS = 3
 
 def _focus_level(focus_score):
     if focus_score is None:
@@ -31,6 +34,25 @@ def write_focus_state(focus_score, reason):
     }
     FOCUS_STATE_FILE.write_text(json.dumps(payload), encoding="utf-8")
     return payload["level"]
+
+def send_focus_to_esp32(focus_score, focus_level, reason):
+    if not ESP32_URL:
+        return False
+
+    payload = {
+        "focus_score": focus_score,
+        "focus_level": focus_level,
+        "reason": reason or "",
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+    }
+
+    try:
+        response = requests.post(ESP32_URL, json=payload, timeout=ESP32_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        return True
+    except requests.RequestException as exc:
+        print(f"ESP32 request failed: {exc}")
+        return False
 
 def scanner():
     output_folder = os.path.join("SCANNING", "captures")
@@ -63,6 +85,7 @@ def scanner():
                 focused, reason = is_person_focused(filename)
 
                 focus_level = write_focus_state(focused, reason)
+                send_focus_to_esp32(focused, focus_level, reason)
 
                 print("Focused:", focused)
                 print("Focus level:", focus_level)

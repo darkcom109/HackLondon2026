@@ -1,6 +1,18 @@
 import json
+import os
 from pathlib import Path
 import time
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
+try:
+    import requests
+except Exception:
+    requests = None
 
 runOnDevice=False
 width, height=128, 64
@@ -8,6 +20,12 @@ FOCUS_STATE_FILE = Path(__file__).resolve().parents[1] / "focus_state.json"
 FOCUS_HIGH_THRESHOLD = 70
 FOCUS_LOW_THRESHOLD = 40
 lastFocusTimestamp = None
+ESP32_FACE_URL = os.getenv("ESP32_FACE_URL", os.getenv("ESP32_URL", "")).strip()
+ESP32_FACE_TIMEOUT_SECONDS = 2
+ESP32_FACE_MIN_INTERVAL_MS = 100
+lastFacePayloadKey = None
+lastFacePushMs = 0
+lastFacePushErrorMs = 0
 
 # Core gameplay tuning. The previous values drained stats too quickly.
 UPDATE_INTERVAL_MS = 5000
@@ -429,6 +447,51 @@ def moodName():
         return "happy"
     return "loving"
 
+def send_face_to_esp32(mood, sprite, x, y):
+    global lastFacePayloadKey, lastFacePushMs, lastFacePushErrorMs
+
+    if not ESP32_FACE_URL or requests is None:
+        return False
+
+    now = now_ms()
+    width_px, height_px, bitmap = sprite
+    payload_key = (mood, int(pet["health"]), int(x), int(y), int(pet["current_frame"] % 8))
+
+    # Skip duplicates if they are generated too quickly.
+    if payload_key == lastFacePayloadKey and (now - lastFacePushMs) < ESP32_FACE_MIN_INTERVAL_MS:
+        return False
+
+    payload = {
+        "type": "tomagatchi_face",
+        "mood": mood,
+        "health": int(pet["health"]),
+        "x": int(x),
+        "y": int(y),
+        "w": int(width_px),
+        "h": int(height_px),
+        "format": "MONO_HLSB",
+        "data": list(bitmap),
+        "frame": int(pet["current_frame"] % 8),
+        "timestamp_ms": now,
+    }
+
+    try:
+        response = requests.post(
+            ESP32_FACE_URL,
+            json=payload,
+            timeout=ESP32_FACE_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        lastFacePayloadKey = payload_key
+        lastFacePushMs = now
+        return True
+    except requests.RequestException as exc:
+        # Keep logs readable while still surfacing failures.
+        if now - lastFacePushErrorMs > 2000:
+            print(f"ESP32 face push failed: {exc}")
+            lastFacePushErrorMs = now
+        return False
+
 def drawPet(oled):
     oled.fill(0)
 
@@ -452,9 +515,9 @@ def drawPet(oled):
     bob = pattern[phase]
     sway = 0 if mood in ("depressed", "dead") else [0, 0, 1, 0, 0, 0, -1, 0][phase]
 
-    x=(width-sprite[0])//2 + sway
-    y=5 + bob
-    blit_sprite(oled, sprite, x, y)
+    sprite_x=(width-sprite[0])//2 + sway
+    sprite_y=5 + bob
+    blit_sprite(oled, sprite, sprite_x, sprite_y)
 
     textOutput="Health:"+str(pet["health"])
     oled.text(textOutput[:21], 0, 50, 1)
@@ -469,6 +532,7 @@ def drawPet(oled):
         else:
             oled.text(" "+action, x, 42, 1)
     oled.show()
+    send_face_to_esp32(mood, sprite, sprite_x, sprite_y)
 
 if runOnDevice:
     from machine import Pin, I2C
