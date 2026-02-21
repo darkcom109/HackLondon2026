@@ -172,19 +172,60 @@ framesIndividual={
     ],
 }
 
+def packMono_HLSB(pixels2D):
+    #Converts the valid pixels above into MONO_HLSB if needed.
+    height=len(pixels2D)
+    if height==0:
+        raise ValueError("No rows in sprite.")
+    width=len(pixels2D[0])
+    for r in pixels2D:
+        if len(r)!=width:
+            raise ValueError("Sprite rows are not all the same width.")
+    bytesPerRow=(width+7)//8
+    out = bytearray(bytesPerRow*height)
+    for y, row in enumerate(pixels2D):
+        rowBase = y*bytesPerRow
+        for x, v in enumerate(row):
+            if v:
+                out[rowBase+(x>>3)] |= (1<<(x&7))
+    return (width, height, bytes(out))
+def resizePackMono_HSLB(pixels2D, width=32, height=32):
+    croppedRows=pixels2D[:height]
+    while len(croppedRows)<height:
+        croppedRows.append([0]*width)
+    fixed=[]
+    for row in croppedRows:
+        newRow = row[:width]
+        if len(newRow)<width:
+            newRow = newRow+[0]*(width-len(newRow))
+        fixed.append(newRow)
+    bytesPerRow=(width+7)//8
+    out = bytearray(bytesPerRow*height)
+
+    for y, row in enumerate(fixed):
+        rowBase = y*bytesPerRow
+        for x, v in enumerate(row):
+            if v:
+                out[rowBase+(x>>3)] |= (1<<(x&7))
+    return (width, height, bytes(out))
+
+#x,y,b=packMono_HLSB(framesIndividual["happy"])
+#print(x, y, list(b))
+
 frames={
+    "happy": resizePackMono_HSLB(framesIndividual["happy"], width=32, height=32),
     "happy": (
     32, 32,
     bytes([
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 247, 255, 255, 255, 227, 143, 255,
-        255, 243, 159, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 15, 255, 255, 255, 127, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 249, 63, 255, 255, 251, 159, 255, 255, 227, 207, 255,
-        255, 31, 248, 255, 191, 249, 255, 255, 59, 252, 127, 184, 27, 255, 252, 177,
-        251, 255, 249, 191, 143, 255, 243, 227, 127, 255, 247, 240, 255, 255, 255, 193,
-        ])
+        0, 0, 0, 4, 64, 0, 0, 6, 192, 0, 0, 7, 64, 1, 0, 5,
+        64, 1, 0, 5, 64, 226, 135, 4, 192, 255, 255, 7, 192, 255, 255, 7,
+        248, 255, 255, 63, 248, 255, 255, 63, 252, 247, 255, 127, 252, 227, 143, 127,
+        254, 243, 159, 255, 254, 255, 255, 255, 254, 255, 255, 255, 254, 255, 255, 255,
+        253, 255, 255, 15, 255, 255, 255, 127, 255, 255, 255, 255, 255, 255, 255, 255,
+        254, 255, 255, 255, 254, 249, 63, 255, 254, 251, 159, 255, 254, 227, 207, 255,
+        252, 31, 248, 127, 188, 249, 255, 127, 56, 252, 127, 56, 24, 255, 252, 49,
+        240, 255, 249, 31, 128, 255, 243, 3, 0, 252, 247, 0, 0, 224, 31, 0,
+    ])
     ),
     "sad": (
     32, 32,
@@ -238,6 +279,19 @@ frames={
         240, 255, 249, 31, 128, 255, 243, 3, 0, 252, 247, 0, 0, 224, 31, 0,
     ])
     ),
+    "dead": (
+    32, 32,
+    bytes([
+        0, 0, 0, 4, 64, 0, 0, 6, 192, 0, 0, 6, 64, 0, 0, 6,
+        192, 0, 0, 6, 192, 98, 134, 7, 192, 127, 254, 7, 192, 127, 255, 7,
+        248, 127, 254, 63, 120, 254, 255, 63, 60, 235, 239, 127, 188, 247, 223, 127,
+        254, 235, 239, 255, 254, 255, 255, 251, 222, 255, 255, 251, 222, 251, 223, 249,
+        221, 255, 223, 13, 159, 239, 239, 125, 191, 255, 255, 251, 191, 247, 191, 247,
+        158, 255, 191, 231, 222, 255, 255, 239, 222, 31, 224, 255, 254, 193, 3, 255,
+        252, 255, 255, 127, 188, 241, 255, 127, 56, 252, 127, 56, 24, 255, 252, 49,
+        240, 255, 249, 31, 128, 255, 243, 3, 0, 252, 247, 0, 0, 224, 31, 0,
+    ])
+    ),
 }
 
 currentAction = 0
@@ -268,15 +322,26 @@ def perform_action(action):
         incrementAttribute("energy", 20)
         incrementAttribute("happiness", -2)
 def moodName():
-    if pet["hunger"]<=10 or pet["energy"]<=10:
-        return "depressed"
-    if pet["hunger"]<=20 or pet["energy"]<=20:
-        return "crying"
-    if pet["happiness"]>=70:
+    avg=(pet["happiness"]+pet["energy"]+pet["hunger"])//3
+    #if pet["happiness"]>=70:
+    #    return "happy"
+    #if pet["hunger"]<=30 or pet["energy"]<=30:
+    #    return "depressed"
+    #if pet["hunger"]<=50 or pet["energy"]<=50:
+    #    return "crying"
+    #if pet["happiness"]>=30:
+    #    return "sad"
+    if avg>50:
         return "happy"
-    if pet["happiness"]>=30:
+    if avg>40:
+        return "neutral"
+    if avg>30:
         return "sad"
-    return "neutral"
+    if avg>20:
+        return "crying"
+    if avg>10:
+        return "depressed"
+    return "dead"
 def drawPet(oled):
     oled.fill(0)
 
@@ -293,17 +358,23 @@ def drawPet(oled):
 
     mood=moodName()
     sprite=frames[mood]
-    x=(128-sprite[0])//2
+    x=(width-sprite[0])//2
     y=5
-    blit_sprite(oled, mood, x, y)
+    blit_sprite(oled, sprite, x, y)
 
     textOutput="H:"+str(pet["hunger"])+" P:"+str(pet["happiness"])+" E:"+str(pet["energy"])
     print(textOutput)
     oled.text(textOutput, 0, 50, 1)
 
     #currentAction
-    oled.text(">"+actions[currentAction], 0, 42)
-
+    textInterval=width//totalActions
+    y=42
+    for i, action in enumerate(actions):
+        x=i*textInterval
+        if i==currentAction:
+            oled.text("="+action, x, 42, 1)
+        else:
+            oled.text(" "+action, x, 42, 1)
     oled.show()
 
 import time
@@ -332,20 +403,13 @@ if runOnDevice:
     def blit_sprite(oled, sprite, x, y):
         width, height, data = sprite
         buffer = bytearray(data)
-        frameBuffer = framebuf.FrameBuffer(buffer, width, height, framebuf.MONO_HSLB)
+        frameBuffer = framebuf.FrameBuffer(buffer, width, height, framebuf.MONO_HLSB)
         oled.blit(frameBuffer, x, y)
 else:
     import pygame
     import sys
 
     #ESP model is ESP32 C3SuperMini
-
-    def blit_sprite(oled, sprite, x, y):
-        width, height, data = sprite
-        bytesPerRow = (width+7) // 8
-        for y2 in range(h):
-            rowBase = y2 * bytesPerRow
-            for x2 in range()
 
     class FakeOled:
         def __init__(self, scale=6):
@@ -430,6 +494,16 @@ else:
         return oled.next_pressed()
     def select_pressed():
         return oled.select_pressed()
+    def blit_sprite(oled, sprite, x, y):
+        width, height, data = sprite
+        bytesPerRow = (width+7) // 8
+        for y2 in range(height):
+            rowBase = y2 * bytesPerRow
+            for x2 in range(width):
+                b=data[rowBase+(x2//8)]
+                bit=(b>>(x2%8)) & 1 #MONO_HLSB
+                if bit:
+                    oled.pixel(x+x2, y+y2, 1)
 
 lastUpdate = tick_ms()
 updateInterval = 100 #0.1 milliseconds
