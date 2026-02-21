@@ -1,8 +1,7 @@
 from PIL import Image
-import math
 import sys
 
-def pngToMono_HSLB(path, width=None, height=None, threshold=128):
+def png_to_mono_hlsb(path, width=None, height=None, threshold=128):
     img=Image.open(path).convert("L")
     if width and height:
         img=img.resize((width, height))
@@ -21,16 +20,20 @@ def pngToMono_HSLB(path, width=None, height=None, threshold=128):
                 frame[i] |=(1<<(x%8))
     return width, height, frame
 
+# Backward-compatible alias.
+def pngToMono_HSLB(path, width=None, height=None, threshold=128):
+    return png_to_mono_hlsb(path, width=width, height=height, threshold=threshold)
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python3 pngToMono_HSLB.py [imageName].png [w h]")
+        print("Usage: python pngToMono_HLSB.py [imageName].png [w h]")
         sys.exit(1)
 
     path = sys.argv[1]
     w = int(sys.argv[2]) if len(sys.argv) >= 4 else None
     h = int(sys.argv[3]) if len(sys.argv) >= 4 else None
 
-    width, height, buf = pngToMono_HSLB(path, width=w, height=h)
+    width, height, buf = png_to_mono_hlsb(path, width=w, height=h)
 
     print(f"W={width} H={height} BYTES={len(buf)}")
     print("frame = (")

@@ -1,10 +1,19 @@
+import json
+from pathlib import Path
+
 runOnDevice=False
 width, height=128, 64
+FOCUS_STATE_FILE = Path(__file__).resolve().parents[1] / "focus_state.json"
+FOCUS_HIGH_THRESHOLD = 70
+FOCUS_LOW_THRESHOLD = 40
+lastFocusTimestamp = None
+
+# Core gameplay tuning. The previous values drained stats too quickly.
+UPDATE_INTERVAL_MS = 5000
+FOCUS_HEALTH_GAIN = 8
+FOCUS_HEALTH_LOSS = 8
 
 pet={
-    "hunger": 20,
-    "happiness": 100,
-    "energy": 100,
     "health": 100,
     "age": 0,
     "current_frame": 0,
@@ -309,8 +318,8 @@ frames={
 }
 
 currentAction = 0
-actions=["Feed","Play","Rest"]
-totalActions=3
+actions=["Focus"]
+totalActions=1
 
 def clamp(value, minVal=0, maxVal=100):
     return max(minVal, min(maxVal, value))
@@ -319,68 +328,73 @@ def incrementAttribute(name, change):
     pet[name]=clamp(pet[name]+change)
 
 def updatePet():
-    incrementAttribute("hunger",-5)
-    #Hunger is actualyl how full the pet is. 0 is starvation.
-    incrementAttribute("happiness",-3)
-    incrementAttribute("energy",-2)
-    # Health naturally degrades slowly over time
-    incrementAttribute("health", -1)
+    # Keep age tracking, but health is only changed by focus score.
+    pet["age"] += 1
 
 def perform_action(action):
-    if action==0:
-        incrementAttribute("hunger", 25)
-        incrementAttribute("happiness", 5)
-    elif action==1:
-        incrementAttribute("happiness", 15)
-        incrementAttribute("energy",-10)
-        incrementAttribute("hunger",-5)
-    elif action==2:
-        incrementAttribute("energy", 20)
-        incrementAttribute("happiness", -2)
+    # Manual action is intentionally disabled for one-stat mode.
+    return
 
-def update_focus_status(is_focused):
-    """Updates pet health based on user focus status"""
-    if is_focused:
-        # User is focused: pet is happy and healthy
-        incrementAttribute("health", 15)
-        incrementAttribute("happiness", 8)
-        incrementAttribute("energy", 3)
-    else:
-        # User is NOT focused: pet is sad and unhealthy
-        incrementAttribute("health", -20)
-        incrementAttribute("happiness", -15)
-        incrementAttribute("energy", -8)
+def apply_focus_score(focus_score):
+    if focus_score is None:
+        return "unknown"
+
+    score = clamp(focus_score, 0, 100)
+
+    if score >= FOCUS_HIGH_THRESHOLD:
+        incrementAttribute("health", FOCUS_HEALTH_GAIN)
+        return "high"
+
+    if score <= FOCUS_LOW_THRESHOLD:
+        incrementAttribute("health", -FOCUS_HEALTH_LOSS)
+        return "low"
+
+    return "medium"
+
+def apply_latest_focus_signal():
+    global lastFocusTimestamp
+
+    if not FOCUS_STATE_FILE.exists():
+        return False
+
+    try:
+        payload = json.loads(FOCUS_STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    timestamp = payload.get("timestamp")
+    if not timestamp or timestamp == lastFocusTimestamp:
+        return False
+
+    lastFocusTimestamp = timestamp
+
+    raw_score = payload.get("focus_score")
+    try:
+        focus_score = int(raw_score) if raw_score is not None else None
+    except (TypeError, ValueError):
+        focus_score = None
+
+    level = apply_focus_score(focus_score)
+    reason = payload.get("reason", "")
+    print(f"Focus update [{level}] score={focus_score} reason={reason}")
+    return True
 
 def moodName():
-    # Health is critical - if health is very low, pet is dying
-    if pet["health"] <= 10:
+    health = pet["health"]
+    if health <= 0:
         return "dead"
-    if pet["health"] <= 25:
+    if health <= 20:
         return "depressed"
-    
-    # Otherwise use average of happiness, energy, and hunger
-    avg=(pet["happiness"]+pet["energy"]+pet["hunger"])//3
-    #if pet["happiness"]>=70:
-    #    return "happy"
-    #if pet["hunger"]<=30 or pet["energy"]<=30:
-    #    return "depressed"
-    #if pet["hunger"]<=50 or pet["energy"]<=50:
-    #    return "crying"
-    #if pet["happiness"]>=30:
-    #    return "sad"
-    if avg>60:
-        return "loving"
-    if avg>50:
-        return "happy"
-    if avg>40:
-        return "neutral"
-    if avg>30:
-        return "sad"
-    if avg>20:
+    if health <= 35:
         return "crying"
-    if avg>10:
-        return "depressed"
-    return "dead"
+    if health <= 50:
+        return "sad"
+    if health <= 65:
+        return "neutral"
+    if health <= 80:
+        return "happy"
+    return "loving"
+
 def drawPet(oled):
     oled.fill(0)
 
@@ -401,9 +415,9 @@ def drawPet(oled):
     y=5
     blit_sprite(oled, sprite, x, y)
 
-    textOutput="H:"+str(pet["hunger"])+" P:"+str(pet["happiness"])+" E:"+str(pet["energy"])
+    textOutput="Health:"+str(pet["health"])
     print(textOutput)
-    oled.text(textOutput, 0, 50, 1)
+    oled.text(textOutput[:21], 0, 50, 1)
 
     #currentAction
     textInterval=width//totalActions
@@ -545,7 +559,7 @@ else:
                     oled.pixel(x+x2, y+y2, 1)
 
 lastUpdate = tick_ms()
-updateInterval = 100 #0.1 milliseconds
+updateInterval = UPDATE_INTERVAL_MS
 
 drawPet(oled)
 
@@ -564,6 +578,9 @@ while mainLoop:
     #    perform_action(currentAction)
     #    drawPet()
     #    time.sleep_ms(200)
+    if apply_latest_focus_signal():
+        drawPet(oled)
+
     now=tick_ms()
     if ticks_diff(now, lastUpdate) > updateInterval:
         lastUpdate=now
