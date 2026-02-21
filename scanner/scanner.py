@@ -24,27 +24,28 @@ def _encode_image_base64(image_path: str) -> tuple[str, str]:
     return media_type, b64
 
 
-def is_person_focused(image_path: str) -> str:
+def is_person_focused(image_path: str) -> tuple[bool | None, str]:
     """
-    Sends an image to Claude and asks whether the person appears focused.
-    Returns a short text answer.
+    Returns:
+        (focused: True/False/None, reason: str)
     """
+
     api_key = os.getenv("CLAUDE_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        raise RuntimeError("Missing API key. Set CLAUDE_API_KEY (or ANTHROPIC_API_KEY) in your .env")
+        raise RuntimeError("Missing API key.")
 
     client = Anthropic(api_key=api_key)
-
     media_type, image_b64 = _encode_image_base64(image_path)
 
     prompt = (
         "You are analyzing a webcam image of someone studying.\n"
-        "Task: Decide if the person appears to be FOCUSED: True or False\n"
-        "Use visible cues only (posture, gaze direction, phone use, off-task behavior).\n"
-        "Return exactly this format:\n"
-        "FOCUSED: True or False\n"
+        "Task: Decide if the person appears to be FOCUSED.\n"
+        "Return EXACTLY this format:\n"
+        "Focused: True or False\n"
         "Reason: <one short sentence>\n"
-        "If you cannot tell, return NOT SURE with the same format."
+        "If you cannot tell, return:\n"
+        "Focused: NOT SURE\n"
+        "Reason: <one short sentence>\n"
     )
 
     message = client.messages.create(
@@ -68,9 +69,34 @@ def is_person_focused(image_path: str) -> str:
         ],
     )
 
-    # Claude returns a list of content blocks; we join all text blocks.
-    claude_output = "".join(block.text for block in message.content if getattr(block, "type", None) == "text")
-    
-    text_to_speech(claude_output)
+    claude_output = "".join(
+        block.text for block in message.content
+        if getattr(block, "type", None) == "text"
+    ).strip()
 
-    return claude_output
+    # ---------------------------
+    # PARSE RESULT SAFELY
+    # ---------------------------
+
+    focused = None
+    reason = ""
+
+    lines = claude_output.splitlines()
+
+    for line in lines:
+        if line.lower().startswith("focused:"):
+            value = line.split(":", 1)[1].strip().lower()
+            if value == "true":
+                focused = True
+            elif value == "false":
+                focused = False
+            else:
+                focused = None
+
+        if line.lower().startswith("reason:"):
+            reason = line.split(":", 1)[1].strip()
+
+    # Optional: speak only the reason
+    text_to_speech(reason)
+
+    return focused, reason

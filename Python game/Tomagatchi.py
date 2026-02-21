@@ -5,6 +5,7 @@ pet={
     "hunger": 20,
     "happiness": 100,
     "energy": 100,
+    "health": 100,
     "age": 0,
     "current_frame": 0,
 }
@@ -322,6 +323,8 @@ def updatePet():
     #Hunger is actualyl how full the pet is. 0 is starvation.
     incrementAttribute("happiness",-3)
     incrementAttribute("energy",-2)
+    # Health naturally degrades slowly over time
+    incrementAttribute("health", -1)
 
 def perform_action(action):
     if action==0:
@@ -334,7 +337,28 @@ def perform_action(action):
     elif action==2:
         incrementAttribute("energy", 20)
         incrementAttribute("happiness", -2)
+
+def update_focus_status(is_focused):
+    """Updates pet health based on user focus status"""
+    if is_focused:
+        # User is focused: pet is happy and healthy
+        incrementAttribute("health", 15)
+        incrementAttribute("happiness", 8)
+        incrementAttribute("energy", 3)
+    else:
+        # User is NOT focused: pet is sad and unhealthy
+        incrementAttribute("health", -20)
+        incrementAttribute("happiness", -15)
+        incrementAttribute("energy", -8)
+
 def moodName():
+    # Health is critical - if health is very low, pet is dying
+    if pet["health"] <= 10:
+        return "dead"
+    if pet["health"] <= 25:
+        return "depressed"
+    
+    # Otherwise use average of happiness, energy, and hunger
     avg=(pet["happiness"]+pet["energy"]+pet["hunger"])//3
     #if pet["happiness"]>=70:
     #    return "happy"

@@ -35,9 +35,14 @@ def scanner():
 
             # Ask Claude if the person is focused
             try:
-                result = is_person_focused(filename)
+                focused, reason = is_person_focused(filename)
+
+                print("Focused:", focused)
+
+                # CALL TOMAGATCHI FUNCTION
                 print("Claude says:")
-                print(result)
+                print("Reason:", reason)
+
             except Exception as e:
                 print(f"Claude scan failed: {e}")
 
