@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import time
 
 runOnDevice=False
 width, height=128, 64
@@ -12,6 +13,15 @@ lastFocusTimestamp = None
 UPDATE_INTERVAL_MS = 5000
 FOCUS_HEALTH_GAIN = 8
 FOCUS_HEALTH_LOSS = 8
+FOCUS_HEALTH_MINOR_GAIN = 4
+FOCUS_GOOD_THRESHOLD = 55
+FOCUS_VERY_LOW_THRESHOLD = 20
+
+FOCUS_REACTION_MS = 4000
+ANIMATION_INTERVAL_MS = 120
+
+focusReactionMood = None
+focusReactionUntilMs = 0
 
 pet={
     "health": 100,
@@ -327,6 +337,14 @@ def clamp(value, minVal=0, maxVal=100):
 def incrementAttribute(name, change):
     pet[name]=clamp(pet[name]+change)
 
+def now_ms():
+    return int(time.monotonic() * 1000)
+
+def set_focus_reaction(mood):
+    global focusReactionMood, focusReactionUntilMs
+    focusReactionMood = mood
+    focusReactionUntilMs = now_ms() + FOCUS_REACTION_MS
+
 def updatePet():
     # Keep age tracking, but health is only changed by focus score.
     pet["age"] += 1
@@ -337,18 +355,32 @@ def perform_action(action):
 
 def apply_focus_score(focus_score):
     if focus_score is None:
+        set_focus_reaction("neutral")
         return "unknown"
 
     score = clamp(focus_score, 0, 100)
 
     if score >= FOCUS_HIGH_THRESHOLD:
         incrementAttribute("health", FOCUS_HEALTH_GAIN)
+        set_focus_reaction("loving")
         return "high"
+
+    if score >= FOCUS_GOOD_THRESHOLD:
+        incrementAttribute("health", FOCUS_HEALTH_MINOR_GAIN)
+        set_focus_reaction("happy")
+        return "good"
+
+    if score <= FOCUS_VERY_LOW_THRESHOLD:
+        incrementAttribute("health", -FOCUS_HEALTH_LOSS)
+        set_focus_reaction("crying")
+        return "very_low"
 
     if score <= FOCUS_LOW_THRESHOLD:
         incrementAttribute("health", -FOCUS_HEALTH_LOSS)
+        set_focus_reaction("sad")
         return "low"
 
+    set_focus_reaction("neutral")
     return "medium"
 
 def apply_latest_focus_signal():
@@ -385,6 +417,8 @@ def moodName():
         return "dead"
     if health <= 20:
         return "depressed"
+    if focusReactionMood and now_ms() < focusReactionUntilMs:
+        return focusReactionMood
     if health <= 35:
         return "crying"
     if health <= 50:
@@ -411,12 +445,18 @@ def drawPet(oled):
 
     mood=moodName()
     sprite=frames[mood]
-    x=(width-sprite[0])//2
-    y=5
+    calm_pattern = [0, 1, 1, 0, 0, -1, -1, 0]
+    energetic_pattern = [0, 1, 2, 1, 0, -1, -2, -1]
+    pattern = energetic_pattern if mood in ("loving", "happy") else calm_pattern
+    phase = pet["current_frame"] % len(pattern)
+    bob = pattern[phase]
+    sway = 0 if mood in ("depressed", "dead") else [0, 0, 1, 0, 0, 0, -1, 0][phase]
+
+    x=(width-sprite[0])//2 + sway
+    y=5 + bob
     blit_sprite(oled, sprite, x, y)
 
     textOutput="Health:"+str(pet["health"])
-    print(textOutput)
     oled.text(textOutput[:21], 0, 50, 1)
 
     #currentAction
@@ -430,7 +470,6 @@ def drawPet(oled):
             oled.text(" "+action, x, 42, 1)
     oled.show()
 
-import time
 if runOnDevice:
     from machine import Pin, I2C
     import ssd1306
@@ -560,6 +599,8 @@ else:
 
 lastUpdate = tick_ms()
 updateInterval = UPDATE_INTERVAL_MS
+lastAnimation = tick_ms()
+animationInterval = ANIMATION_INTERVAL_MS
 
 drawPet(oled)
 
@@ -578,21 +619,29 @@ while mainLoop:
     #    perform_action(currentAction)
     #    drawPet()
     #    time.sleep_ms(200)
-    if apply_latest_focus_signal():
-        drawPet(oled)
-
     now=tick_ms()
+    needsRedraw = False
+
+    if apply_latest_focus_signal():
+        needsRedraw = True
+
     if ticks_diff(now, lastUpdate) > updateInterval:
         lastUpdate=now
         updatePet()
-        drawPet(oled)
+        needsRedraw = True
+    if ticks_diff(now, lastAnimation) > animationInterval:
+        lastAnimation = now
+        pet["current_frame"] = (pet["current_frame"] + 1) % 1000000
+        needsRedraw = True
     if next_pressed():
         currentAction=(currentAction+1)%totalActions
-        drawPet(oled)
+        needsRedraw = True
         sleep_ms(200)
     if select_pressed():
         perform_action(currentAction)
-        drawPet(oled)
+        needsRedraw = True
         sleep_ms(200)
+    if needsRedraw:
+        drawPet(oled)
     #Small idle to avoid overusing CPU. :)
     sleep_ms(10)

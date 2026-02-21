@@ -53,7 +53,8 @@ def is_person_focused(image_path: str) -> tuple[int | None, str]:
 
     prompt = (
         "You are analyzing a webcam image of someone studying.\n"
-        "They may be looking at the webcam and that is normal since they might be using the computer to study\n"
+        "you ideally want them to sort of look at the webcam or looking down focused or writing\n"
+        "you should be able to figure out if the person is not focused on their facial expression\n"
         "However you really need to analyse their face properly to ensure they are studying"
         "Task: Estimate how focused the person appears.\n\n"
         "Return EXACTLY this format:\n"
@@ -65,8 +66,7 @@ def is_person_focused(image_path: str) -> tuple[int | None, str]:
         "40-60 = partially distracted.\n"
         "10-30 = clearly distracted.\n"
         "0 = completely off-task.\n"
-        "If you cannot tell, return:\n"
-        "Focus Score: -1\n"
+        "If you cannot see the person say focus mode is 0\n"
         "Reason: <one short sentence>\n"
     )
 
