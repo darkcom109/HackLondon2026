@@ -524,21 +524,19 @@ def send_status_to_esp32(mood):
     if payload_key == lastFacePayloadKey and (now - lastFacePushMs) < ESP32_FACE_MIN_INTERVAL_MS:
         return False
 
-    payload = {
-        "type": "tomagatchi_status",
-        "status": mood,
-        "health": int(pet["health"]),
-        "frame": int(pet["current_frame"] % 8),
-        "timestamp_ms": now,
+    health_value = int(pet["health"])
+    params = {
+        "hunger": health_value,
+        "happiness": health_value,
+        "energy": health_value,
+        "age": int(pet["age"]),
+        "current_frame": int(pet["current_frame"] % 8),
+        "mood": mood,
     }
-    print(f"ESP32 status payload: {json.dumps(payload)}")
+    print(f"ESP32 status params: {json.dumps(params)}")
 
     try:
-        response = requests.post(
-            ESP32_STATUS_URL,
-            json=payload,
-            timeout=ESP32_FACE_TIMEOUT_SECONDS,
-        )
+        response = requests.get(ESP32_STATUS_URL, params=params, timeout=ESP32_FACE_TIMEOUT_SECONDS)
         response.raise_for_status()
         lastFacePayloadKey = payload_key
         lastFacePushMs = now
@@ -633,7 +631,12 @@ else:
             self.screen=pygame.display.set_mode((self.width*self.scale, self.height*self.scale))
             pygame.display.set_caption("Tomagatchi-9000")
             self.clock = pygame.time.Clock()
-            self.font = pygame.font.SysFont("Courier", 10)
+            self.font = None
+            try:
+                pygame.font.init()
+                self.font = pygame.font.Font(None, 10)
+            except Exception as exc:
+                print(f"Warning: pygame font unavailable, text overlay disabled ({exc})")
         def fill(self, colour):
             v=1 if colour else 0
             for y in range(self.height):
@@ -656,6 +659,8 @@ else:
                         break
                     self.pixel(x2, y2, colour)
         def text(self, message, x, y, colour=1):
+            if self.font is None:
+                return
             fg=(255, 255, 255) if colour==1 else (0,0,0)
             bg=(0, 0, 0)
             surface=  self.font.render(message, False, fg, bg)

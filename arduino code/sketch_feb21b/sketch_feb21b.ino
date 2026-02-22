@@ -8,13 +8,13 @@
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-const char* ssid = "No one likes you";
-const char* pass = "sixthform";
+const char* ssid = "Tphone";
+const char* pass = "tommyjoin123";
 
 WebServer server(80);
 
 
-String mood = "neutral";
+String mood = "happy";
 
 int happiness = 100;
 int energy = 100;
