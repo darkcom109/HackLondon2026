@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 import time
+import sys
 
 try:
     from dotenv import load_dotenv
@@ -26,6 +27,11 @@ ESP32_FACE_MIN_INTERVAL_MS = 100
 lastFacePayloadKey = None
 lastFacePushMs = 0
 lastFacePushErrorMs = 0
+ESP32_STATUS_URL = os.getenv("ESP32_STATUS_URL", ESP32_FACE_URL).strip()
+CALM_PATTERN = (0, 1, 1, 0, 0, -1, -1, 0)
+ENERGETIC_PATTERN = (0, 1, 2, 1, 0, -1, -2, -1)
+SWAY_PATTERN = (0, 0, 1, 0, 0, 0, -1, 0)
+ACTIONS = ("Focus",)
 
 # Core gameplay tuning. The previous values drained stats too quickly.
 UPDATE_INTERVAL_MS = 5000
@@ -345,9 +351,67 @@ frames={
     ),
 }
 
+def _cpp_int_values(values, per_line=16):
+    lines = []
+    for i in range(0, len(values), per_line):
+        chunk = ", ".join(str(int(v)) for v in values[i:i + per_line])
+        lines.append(f"    {chunk}")
+    return ",\n".join(lines)
+
+def _cpp_2d_rows(rows):
+    lines = []
+    for row in rows:
+        row_values = ", ".join(str(int(v)) for v in row)
+        lines.append(f"    {{{row_values}}},")
+    return "\n".join(lines)
+
+def export_cpp_arrays(output_path=None):
+    out_path = Path(output_path) if output_path else Path(__file__).with_name("tomagatchi_arrays.h")
+    moods = list(frames.keys())
+    header_lines = [
+        "// Auto-generated from Tomagatchi.py",
+        "#pragma once",
+        "#include <stdint.h>",
+        "",
+        f"const int8_t TOMA_CALM_PATTERN[{len(CALM_PATTERN)}] = {{{', '.join(str(v) for v in CALM_PATTERN)}}};",
+        f"const int8_t TOMA_ENERGETIC_PATTERN[{len(ENERGETIC_PATTERN)}] = {{{', '.join(str(v) for v in ENERGETIC_PATTERN)}}};",
+        f"const int8_t TOMA_SWAY_PATTERN[{len(SWAY_PATTERN)}] = {{{', '.join(str(v) for v in SWAY_PATTERN)}}};",
+        f"const char* const TOMA_ACTIONS[{len(ACTIONS)}] = {{{', '.join(f'\"{a}\"' for a in ACTIONS)}}};",
+        f"const char* const TOMA_MOODS[{len(moods)}] = {{{', '.join(f'\"{m}\"' for m in moods)}}};",
+        "",
+    ]
+
+    for mood, rows in framesIndividual.items():
+        row_count = len(rows)
+        col_count = len(rows[0]) if row_count else 0
+        arr_name = f"TOMA_RAW_{mood.upper()}"
+        header_lines.append(f"const uint8_t {arr_name}[{row_count}][{col_count}] = {{")
+        header_lines.append(_cpp_2d_rows(rows))
+        header_lines.append("};")
+        header_lines.append("")
+
+    for mood in moods:
+        width_px, height_px, bitmap = frames[mood]
+        arr_name = f"TOMA_FACE_{mood.upper()}"
+        header_lines.append(f"const uint8_t {arr_name}[{len(bitmap)}] = {{")
+        header_lines.append(_cpp_int_values(bitmap))
+        header_lines.append("};")
+        header_lines.append(f"const uint8_t {arr_name}_W = {int(width_px)};")
+        header_lines.append(f"const uint8_t {arr_name}_H = {int(height_px)};")
+        header_lines.append("")
+
+    out_path.write_text("\n".join(header_lines), encoding="utf-8")
+    print(f"C++ arrays exported to {out_path}")
+
+if __name__ == "__main__" and "--export-cpp" in sys.argv:
+    arg_index = sys.argv.index("--export-cpp")
+    output_arg = sys.argv[arg_index + 1] if (arg_index + 1) < len(sys.argv) else None
+    export_cpp_arrays(output_arg)
+    raise SystemExit(0)
+
 currentAction = 0
-actions=["Focus"]
-totalActions=1
+actions=ACTIONS
+totalActions=len(actions)
 
 def clamp(value, minVal=0, maxVal=100):
     return max(minVal, min(maxVal, value))
@@ -447,37 +511,31 @@ def moodName():
         return "happy"
     return "loving"
 
-def send_face_to_esp32(mood, sprite, x, y):
+def send_status_to_esp32(mood):
     global lastFacePayloadKey, lastFacePushMs, lastFacePushErrorMs
 
-    if not ESP32_FACE_URL or requests is None:
+    if not ESP32_STATUS_URL or requests is None:
         return False
 
     now = now_ms()
-    width_px, height_px, bitmap = sprite
-    payload_key = (mood, int(pet["health"]), int(x), int(y), int(pet["current_frame"] % 8))
+    payload_key = (mood, int(pet["health"]), int(pet["current_frame"] % 8))
 
     # Skip duplicates if they are generated too quickly.
     if payload_key == lastFacePayloadKey and (now - lastFacePushMs) < ESP32_FACE_MIN_INTERVAL_MS:
         return False
 
     payload = {
-        "type": "tomagatchi_face",
-        "mood": mood,
+        "type": "tomagatchi_status",
+        "status": mood,
         "health": int(pet["health"]),
-        "x": int(x),
-        "y": int(y),
-        "w": int(width_px),
-        "h": int(height_px),
-        "format": "MONO_HLSB",
-        "data": list(bitmap),
         "frame": int(pet["current_frame"] % 8),
         "timestamp_ms": now,
     }
+    print(f"ESP32 status payload: {json.dumps(payload)}")
 
     try:
         response = requests.post(
-            ESP32_FACE_URL,
+            ESP32_STATUS_URL,
             json=payload,
             timeout=ESP32_FACE_TIMEOUT_SECONDS,
         )
@@ -488,7 +546,7 @@ def send_face_to_esp32(mood, sprite, x, y):
     except requests.RequestException as exc:
         # Keep logs readable while still surfacing failures.
         if now - lastFacePushErrorMs > 2000:
-            print(f"ESP32 face push failed: {exc}")
+            print(f"ESP32 status push failed: {exc}")
             lastFacePushErrorMs = now
         return False
 
@@ -508,12 +566,10 @@ def drawPet(oled):
 
     mood=moodName()
     sprite=frames[mood]
-    calm_pattern = [0, 1, 1, 0, 0, -1, -1, 0]
-    energetic_pattern = [0, 1, 2, 1, 0, -1, -2, -1]
-    pattern = energetic_pattern if mood in ("loving", "happy") else calm_pattern
+    pattern = ENERGETIC_PATTERN if mood in ("loving", "happy") else CALM_PATTERN
     phase = pet["current_frame"] % len(pattern)
     bob = pattern[phase]
-    sway = 0 if mood in ("depressed", "dead") else [0, 0, 1, 0, 0, 0, -1, 0][phase]
+    sway = 0 if mood in ("depressed", "dead") else SWAY_PATTERN[phase]
 
     sprite_x=(width-sprite[0])//2 + sway
     sprite_y=5 + bob
@@ -532,7 +588,7 @@ def drawPet(oled):
         else:
             oled.text(" "+action, x, 42, 1)
     oled.show()
-    send_face_to_esp32(mood, sprite, sprite_x, sprite_y)
+    send_status_to_esp32(mood)
 
 if runOnDevice:
     from machine import Pin, I2C
