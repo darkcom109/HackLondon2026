@@ -524,6 +524,7 @@ def send_status_to_esp32(mood):
     if payload_key == lastFacePayloadKey and (now - lastFacePushMs) < ESP32_FACE_MIN_INTERVAL_MS:
         return False
 
+<<<<<<< HEAD:Python-game/Tomagatchi.py
     health_value = int(pet["health"])
     params = {
         "hunger": health_value,
@@ -537,6 +538,23 @@ def send_status_to_esp32(mood):
 
     try:
         response = requests.get(ESP32_STATUS_URL, params=params, timeout=ESP32_FACE_TIMEOUT_SECONDS)
+=======
+    payload = {
+        "type": "tomagatchi_status",
+        "status": mood,
+        "health": int(pet["health"]),
+        "frame": int(pet["current_frame"] % 8),
+        "timestamp_ms": now,
+    }
+    print(f"ESP32 status payload: {json.dumps(payload)}")
+
+    try:
+        response = requests.post(
+            ESP32_STATUS_URL,
+            json=payload,
+            timeout=ESP32_FACE_TIMEOUT_SECONDS,
+        )
+>>>>>>> 82a6f80 (fix: fix this now):Python game/Tomagatchi.py
         response.raise_for_status()
         lastFacePayloadKey = payload_key
         lastFacePushMs = now
