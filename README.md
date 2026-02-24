@@ -2,6 +2,24 @@
 
 Webcam focus scanner + Tamagotchi game + ESP32 OLED bridge.
 
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![OpenCV](https://img.shields.io/badge/OpenCV-Computer%20Vision-5C3EE8?logo=opencv&logoColor=white)
+![Anthropic](https://img.shields.io/badge/Anthropic-Claude-111111)
+![Pygame](https://img.shields.io/badge/Pygame-2.x-2E8B57)
+![Requests](https://img.shields.io/badge/Requests-HTTP-20232A)
+![ESP32](https://img.shields.io/badge/ESP32-IoT-E7352C)
+![Arduino](https://img.shields.io/badge/Arduino-IDE-00979D?logo=arduino&logoColor=white)
+![SSD1306 OLED](https://img.shields.io/badge/OLED-SSD1306-4A4A4A)
+
+## Tools / Stack
+- Language: Python
+- AI Vision Scoring: Anthropic Claude (`anthropic`)
+- Camera Capture: OpenCV (`opencv-python`)
+- Game/UI Simulation: Pygame (`pygame`)
+- HTTP Client: Requests (`requests`)
+- Config: `python-dotenv`
+- MCU/OLED Side: ESP32 + Arduino IDE + SSD1306
+
 ## Overview
 This project captures webcam frames, asks Claude to estimate focus, and uses that score to drive a Tamagotchi pet state. The pet can also send status updates to an ESP32 so your OLED can show stats/mood.
 
@@ -140,3 +158,4 @@ Output:
 - `focus_state.json` must stay at repo root for scanner/game sync.
 - Keep `.env` out of git (already ignored).
 - If API keys were exposed, rotate them.
+
