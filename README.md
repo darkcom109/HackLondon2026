@@ -1,4 +1,4 @@
-﻿# three-stooges-project
+﻿# The Three Stooges Project
 
 Focus scanner + Tamagotchi simulation + optional ESP32 status bridge.
 
