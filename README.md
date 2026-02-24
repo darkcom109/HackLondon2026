@@ -1,97 +1,100 @@
 ﻿# The Three Stooges Project
 
-Focus scanner + Tamagotchi simulation + optional ESP32 status bridge.
+Webcam focus scanner + Tamagotchi game + ESP32 OLED bridge.
 
-## What This Project Does
-- Captures a webcam image every 10 seconds.
-- Sends the image to Claude for a focus score (0-100) and a short reason.
-- Writes the latest focus result to `focus_state.json`.
-- Runs a Tamagotchi-style pet that reads `focus_state.json` and updates mood/health.
-- Optionally sends updates to an ESP32 endpoint.
+## Overview
+This project captures webcam frames, asks Claude to estimate focus, and uses that score to drive a Tamagotchi pet state. The pet can also send status updates to an ESP32 so your OLED can show stats/mood.
 
-## Current Flow
-1. `scanner/main.py` starts `Python game/Tomagatchi.py`.
-2. `scanner/picture.py` captures webcam frames and calls Claude via `scanner/scanner.py`.
-3. `scanner/picture.py` writes `focus_state.json`.
-4. `Python game/Tomagatchi.py` reads `focus_state.json`, updates pet state, redraws, and can push mood/status to ESP32.
+## Current Repository Layout
+- `focus-scanner-code/main.py`
+- `focus-scanner-code/picture.py`
+- `focus-scanner-code/scanner.py`
+- `focus-scanner-code/speaker.py`
+- `python-game-code/Tomagatchi.py`
+- `python-game-code/tomagatchi_arrays.h`
+- `arduino-code/sketch_feb21b/sketch_feb21b.ino`
+- `focus_state.json`
+- `run_all.py`
 
-## Project Structure
-- `scanner/main.py`: Entrypoint that launches scanner + Tamagotchi process.
-- `scanner/picture.py`: Webcam capture loop, focus state writer, optional ESP32 focus sender.
-- `scanner/scanner.py`: Claude API call + parser for `Focus Score` and `Reason`.
-- `scanner/speaker.py`: Optional ElevenLabs TTS alert helper.
-- `Python game/Tomagatchi.py`: Pet simulation, OLED/pygame rendering, ESP32 status sender, C++ array exporter.
-- `Python game/tomagatchi_arrays.h`: Auto-generated C++ arrays for Arduino/ESP32 (generated file).
+## Flow
+1. `focus-scanner-code/picture.py` captures webcam images.
+2. `focus-scanner-code/scanner.py` sends each image to Claude and gets:
+   - `focus_score` (0-100)
+   - `reason`
+3. Scanner writes the result to root `focus_state.json`.
+4. `python-game-code/Tomagatchi.py` reads `focus_state.json`, updates health/mood, and redraws.
+5. Tamagotchi optionally sends status to ESP32 over HTTP.
 
 ## Requirements
 - Python 3.10+
 - Webcam
-- Dependencies:
-  - `anthropic`
-  - `python-dotenv`
-  - `opencv-python`
-  - `requests`
-  - `pygame`
-  - `elevenlabs` (optional, only if using speaker alerts)
+- Optional ESP32 board + SSD1306 OLED
 
-Example install:
+Python packages:
+- `anthropic`
+- `python-dotenv`
+- `opencv-python`
+- `requests`
+- `pygame`
+- `elevenlabs` (optional, for speech alerts)
+
+Install:
 
 ```bash
-pip install anthropic python-dotenv opencv-python requests pygame elevenlabs
+py -3 -m pip install anthropic python-dotenv opencv-python requests pygame elevenlabs
 ```
 
 ## Environment Variables (`.env`)
-Set the values you need:
 
 ```env
-# Required for Claude scanning
+# Claude
 CLAUDE_API_KEY=your_anthropic_key
-
-# Optional Claude tuning
+# or ANTHROPIC_API_KEY=...
 CLAUDE_MODEL=claude-opus-4-6
 CLAUDE_MAX_TOKENS=200
 
-# Optional camera selection
+# Camera
 CAMERA_INDEX=0
 
-# Optional: scanner -> ESP32 (POST JSON)
+# Scanner -> ESP32 (POST JSON)
 ESP32_URL=http://<esp32-ip>/focus
 
-# Optional: Tamagotchi -> ESP32 (GET query params)
-ESP32_STATUS_URL=http://<esp32-ip>/status
+# Tamagotchi -> ESP32 (GET query params)
+ESP32_STATUS_URL=http://<esp32-ip>/set
+
+# Optional speech alerts
+ELEVENLABS_API_KEY=your_elevenlabs_key
 ```
 
 ## Run
-Start everything (recommended):
+Recommended right now (2 terminals):
+
+Terminal 1 (Tamagotchi):
 
 ```bash
-python scanner/main.py
+py -3 python-game-code/Tomagatchi.py
 ```
 
-This launches:
-- Tamagotchi window/process
-- scanner loop that updates focus every 10 seconds
-
-Run only Tamagotchi:
+Terminal 2 (scanner):
 
 ```bash
-python "Python game/Tomagatchi.py"
+py -3 focus-scanner-code/picture.py
 ```
 
-Stop with `CTRL+C` in the scanner terminal.
+Stop with `Ctrl+C`.
 
 ## Data Contracts
-### `focus_state.json`
-Written by `scanner/picture.py` and consumed by `Python game/Tomagatchi.py`.
+### `focus_state.json` (root)
+Produced by scanner and consumed by Tamagotchi.
 
 Example:
 
 ```json
 {
-  "timestamp": "2026-02-21T22:53:50",
+  "timestamp": "2026-02-24T02:42:00",
   "focus_score": 55,
   "level": "medium",
-  "reason": "Person appears partially focused."
+  "reason": "Person appears somewhat focused."
 }
 ```
 
@@ -107,7 +110,7 @@ JSON body:
 ### Tamagotchi -> ESP32 (`ESP32_STATUS_URL`)
 Method: `GET`
 
-Query params currently sent by `Python game/Tomagatchi.py`:
+Query params:
 - `hunger`
 - `happiness`
 - `energy`
@@ -115,37 +118,25 @@ Query params currently sent by `Python game/Tomagatchi.py`:
 - `current_frame`
 - `mood`
 
-The Tamagotchi also prints params each send in terminal logs.
+## Arduino Side
+Current sketch path:
+- `arduino-code/sketch_feb21b/sketch_feb21b.ino`
 
-## Export C++ Arrays For Arduino
-`Python game/Tomagatchi.py` can export sprite/mood arrays as a C++ header:
+The sketch currently exposes:
+- `GET /ping`
+- `GET /set` (reads stats query params)
+
+## Export C++ Arrays
+Generate/update C++ arrays from the Python sprites:
 
 ```bash
-python "Python game/Tomagatchi.py" --export-cpp
+py -3 python-game-code/Tomagatchi.py --export-cpp
 ```
 
-Optional output path:
+Output:
+- `python-game-code/tomagatchi_arrays.h`
 
-```bash
-python "Python game/Tomagatchi.py" --export-cpp "Python game/tomagatchi_arrays.h"
-```
-
-Generated header includes:
-- `TOMA_FACE_*` packed face arrays
-- `TOMA_RAW_*` raw 2D arrays
-- mood/action/pattern constants
-
-## Troubleshooting
-- `Cannot access camera`:
-  - Set `CAMERA_INDEX` in `.env` (try `0`, `1`, etc).
-- `Claude scan failed` with `401 quota_exceeded`:
-  - Check the billing/quota for the API key and the correct provider account.
-- `model ... not_found_error`:
-  - Set a valid `CLAUDE_MODEL` in `.env`.
-- No sound output:
-  - `scanner/speaker.py` needs an audio player (`ffplay`, `mpg123`, or `paplay`) and ElevenLabs key.
-
-## Security Note
-- Do not commit live API keys.
-- `.env` is already ignored in `.gitignore`.
-- If keys were ever exposed, rotate them.
+## Notes
+- `focus_state.json` must stay at repo root for scanner/game sync.
+- Keep `.env` out of git (already ignored).
+- If API keys were exposed, rotate them.
