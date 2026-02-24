@@ -59,9 +59,6 @@ ESP32_URL=http://<esp32-ip>/focus
 
 # Optional: Tamagotchi -> ESP32 (GET query params)
 ESP32_STATUS_URL=http://<esp32-ip>/status
-
-# Optional: TTS alerts
-ELEVENLABS_API_KEY=your_elevenlabs_key
 ```
 
 ## Run
